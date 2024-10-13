@@ -60,3 +60,5 @@ Start mining and send transactions in console: `loadScript("run.js")`.
 Wait for the program to execute and obtain the complete result. (maybe a long time) `Ctrl+D` stop console.
 
 Then execute `ethnodes/parseResult.py` to parse the execution result.
+
+Notes: 
