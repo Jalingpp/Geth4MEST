@@ -26,6 +26,7 @@ import (
 	"math/rand"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/dop251/goja"
@@ -305,7 +306,14 @@ func (re *JSRE) loadScript(call Call) (goja.Value, error) {
 	}
 	duration := time.Since(startT)
 	//打开文件
-	tfile, err2 := os.OpenFile("result/throughput.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	filepath := "result/throughput.txt"
+	dirs := strings.Split(filepath, "/")
+	if _, err := os.Stat(strings.Join(dirs[:len(dirs)-1], "/")); os.IsNotExist(err) {
+		if err := os.MkdirAll(strings.Join(dirs[:len(dirs)-1], "/"), 0750); err != nil {
+			fmt.Println(err)
+		}
+	}
+	tfile, err2 := os.OpenFile(filepath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err2 != nil {
 		fmt.Println("Open file error!")
 	}

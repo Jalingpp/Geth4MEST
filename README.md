@@ -45,10 +45,10 @@ Initialize a node: `cd ethnodes` and then `geth --datadir ./ init ./genesis.json
 Start node and go into the console: `geth --networkid 200 --datadir "./" --nodiscover --rpcapi personal console`. Note that the networkid is the same as the chainId in `genesis.json`. `--rpcapi personal` allows usage of rpc methods of personal module.
 
 ## Run MEST Experiments
+Change **siMode(meht,mbt,mpt)** located in line 203 of `miner/worker.go`.
+
 Start mining and send transactions in console: `loadScript("run.js")`.
 
-Wait several minutes, and when `ethnodes/datafile` contains data records, start MEST:
+Wait for the program to execute and obtain the complete result. (maybe a long time)
 
-`cd MEST` (https://github.com/Jalingpp/MEST)
-
-`./test_geth.go`
+Then execute `ethnodes/parseResult.py` to parse the execution result.

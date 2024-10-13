@@ -25,10 +25,13 @@ import (
 	"math/big"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/Jalingpp/MEST/sedb"
+	"github.com/Jalingpp/MEST/util"
 	mapset "github.com/deckarep/golang-set"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -190,9 +193,47 @@ type worker struct {
 	skipSealHook func(*task) bool                   // Method to decide whether skipping the sealing.
 	fullTaskHook func()                             // Method to call before pushing the full sealing task.
 	resubmitHook func(time.Duration, time.Duration) // Method to call upon updating resubmitting interval.
+
+	//新增
+	seDB *sedb.SEDB
 }
 
 func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus.Engine, eth Backend, mux *event.TypeMux, isLocalBlock func(*types.Block) bool, init bool) *worker {
+	//新增start
+	siMode := "meht" //meht,mbt,mpt
+	filePath := "levelDB/config.txt"
+	dirs := strings.Split(filePath, "/")
+	if _, err := os.Stat(strings.Join(dirs[:len(dirs)-1], "/")); os.IsNotExist(err) {
+		if err := os.MkdirAll(strings.Join(dirs[:len(dirs)-1], "/"), 0750); err != nil {
+			fmt.Println(err)
+		}
+	}
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		util.WriteStringToFile(filePath, ",levelDB/PrimaryDB"+siMode+
+			",levelDB/SecondaryDB"+siMode+"\n")
+	}
+	seHash, primaryDbPath, secondaryDbPath := sedb.ReadSEDBInfoFromFile(filePath)
+	mbtBucketNum := 9000 //default
+	mbtAggregation := 16 //default
+	mehtBc := 500        //default
+	mehtBs := 1          //default
+	mehtWs := 4          //default
+	mehtSt := 2          //default
+	mehtBFsize := 400000 //default
+	mehtBFhnum := 3      //default
+	mehtIsbf := true     //default
+	mehtArgs := make([]interface{}, 0)
+	mehtArgs = append(mehtArgs, sedb.MEHTRdx(16), sedb.MEHTBc(mehtBc), sedb.MEHTBs(mehtBs), sedb.MEHTWs(mehtWs), sedb.MEHTSt(mehtSt), sedb.MEHTBFsize(mehtBFsize), sedb.MEHTBFHnum(mehtBFhnum), sedb.MEHTIsBF(mehtIsbf))
+	mbtArgs := make([]interface{}, 0)
+	mbtArgs = append(mbtArgs, sedb.MBTBucketNum(mbtBucketNum), sedb.MBTAggregation(mbtAggregation))
+	cacheEnable := true
+	shortNodeCacheCapacity := 5000
+	fullNodeCacheCapacity := 5000
+	mgtNodeCacheCapacity := 100000
+	bucketCacheCapacity := 128000
+	segmentCacheCapacity := bucketCacheCapacity
+	merkleTreeCacheCapacity := bucketCacheCapacity
+	//新增end
 	worker := &worker{
 		config:             config,
 		chainConfig:        chainConfig,
@@ -221,6 +262,10 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 	// Subscribe events for blockchain
 	worker.chainHeadSub = eth.BlockChain().SubscribeChainHeadEvent(worker.chainHeadCh)
 	worker.chainSideSub = eth.BlockChain().SubscribeChainSideEvent(worker.chainSideCh)
+	worker.seDB = sedb.NewSEDB(seHash, primaryDbPath, secondaryDbPath, siMode, mbtArgs, mehtArgs, cacheEnable,
+		sedb.ShortNodeCacheCapacity(shortNodeCacheCapacity), sedb.FullNodeCacheCapacity(fullNodeCacheCapacity),
+		sedb.MgtNodeCacheCapacity(mgtNodeCacheCapacity), sedb.BucketCacheCapacity(bucketCacheCapacity),
+		sedb.SegmentCacheCapacity(segmentCacheCapacity), sedb.MerkleTreeCacheCapacity(merkleTreeCacheCapacity))
 
 	// Sanitize recommit interval if the user-specified one is too short.
 	recommit := worker.config.Recommit
@@ -484,7 +529,14 @@ func (w *worker) mainLoop() {
 			totalTimes = totalTimes + 1
 			avglatency = (avglatency + int(duration.Seconds()*1000)) / totalTimes
 			//打开文件
-			tfile, err2 := os.OpenFile("result/avglatency.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			filepath := "result/avglatency.txt"
+			dirs := strings.Split(filepath, "/")
+			if _, err := os.Stat(strings.Join(dirs[:len(dirs)-1], "/")); os.IsNotExist(err) {
+				if err := os.MkdirAll(strings.Join(dirs[:len(dirs)-1], "/"), 0750); err != nil {
+					fmt.Println(err)
+				}
+			}
+			tfile, err2 := os.OpenFile(filepath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 			if err2 != nil {
 				fmt.Println("Open file error!")
 			}
@@ -1027,11 +1079,29 @@ func (w *worker) commit(uncles []*types.Header, interval func(), update bool, st
 		w.updateSnapshot()
 	}
 
-	fmt.Println("!!!!miner/worker.go/commit:", len(w.current.txs))
+	// writeToFile(w.current.txs)
+
+	txlines := make([]string, 0)
+	for i := 0; i < len(w.current.txs); i++ {
+		line := txToline(w.current.txs[i])
+		if line != "" {
+			txlines = append(txlines, line)
+		}
+	}
+
+	if len(txlines) > 0 {
+		w.writeToSEDB(txlines)
+	}
+
+	return nil
+}
+
+func writeToFile(txs []*types.Transaction) {
+	fmt.Println("!!!!miner/worker.go/commit:", len(txs))
 	// for i := 0; i < len(w.current.txs); i++ {
 	// 	fmt.Println("!!!!miner/worker.go/commit:", "tx", i, w.current.txs[i].MESTType(), w.current.txs[i].MESTKey(), w.current.txs[i].MESTTokenId(), w.current.txs[i].MESTValue())
 	// }
-	if len(w.current.txs) > 0 {
+	if len(txs) > 0 {
 		//写入到文件
 		file, err := os.OpenFile("datafileGeth", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
@@ -1047,20 +1117,20 @@ func (w *worker) commit(uncles []*types.Header, interval func(), update bool, st
 		bytesType1 := []byte{16}
 		bytesType2 := []byte{32}
 
-		for i := 0; i < len(w.current.txs); i++ {
+		for i := 0; i < len(txs); i++ {
 			line := make([]byte, 0)
 
-			if bytes.Equal(w.current.txs[i].MESTType(), bytesType1) {
+			if bytes.Equal(txs[i].MESTType(), bytesType1) {
 				line = append(line, []byte("insertion,0x")...)
-				line = append(line, []byte(hex.EncodeToString(w.current.txs[i].MESTKey()))...)
+				line = append(line, []byte(hex.EncodeToString(txs[i].MESTKey()))...)
 				line = append(line, []byte("/")...)
-				line = append(line, []byte(hex.EncodeToString(w.current.txs[i].MESTTokenId()))...)
+				line = append(line, []byte(hex.EncodeToString(txs[i].MESTTokenId()))...)
 				line = append(line, []byte(",0x")...)
-				line = append(line, []byte(hex.EncodeToString(w.current.txs[i].MESTValue()))...)
+				line = append(line, []byte(hex.EncodeToString(txs[i].MESTValue()))...)
 				line = append(line, []byte("\n")...)
-			} else if bytes.Equal(w.current.txs[i].MESTType(), bytesType2) {
+			} else if bytes.Equal(txs[i].MESTType(), bytesType2) {
 				line = append(line, []byte("query,0x")...)
-				line = append(line, []byte(hex.EncodeToString(w.current.txs[i].MESTKey()))...)
+				line = append(line, []byte(hex.EncodeToString(txs[i].MESTKey()))...)
 				line = append(line, []byte("\n")...)
 			}
 
@@ -1083,10 +1153,181 @@ func (w *worker) commit(uncles []*types.Header, interval func(), update bool, st
 		if err != nil {
 			panic(err)
 		}
-
 		os.Rename("datafile.tmp", "datafile") // 重命名文件
 	}
-	return nil
+}
+
+func txToline(tx *types.Transaction) string {
+	line := make([]byte, 0)
+	bytesType1 := []byte{16}
+	bytesType2 := []byte{32}
+	if bytes.Equal(tx.MESTType(), bytesType1) {
+		line = append(line, []byte("insertion,0x")...)
+		line = append(line, []byte(hex.EncodeToString(tx.MESTKey()))...)
+		line = append(line, []byte("/")...)
+		line = append(line, []byte(hex.EncodeToString(tx.MESTTokenId()))...)
+		line = append(line, []byte(",0x")...)
+		line = append(line, []byte(hex.EncodeToString(tx.MESTValue()))...)
+		line = append(line, []byte("\n")...)
+	} else if bytes.Equal(tx.MESTType(), bytesType2) {
+		line = append(line, []byte("query,0x")...)
+		line = append(line, []byte(hex.EncodeToString(tx.MESTKey()))...)
+		line = append(line, []byte("\n")...)
+	}
+	// fmt.Println("txToline:", string(line))
+	return string(line)
+}
+
+type IntegerWithLock struct {
+	number int
+	lock   sync.Mutex
+}
+
+func (w *worker) writeToSEDB(txs []string) {
+	batchSize := 1000 //default
+	var curStartNum = IntegerWithLock{0, sync.Mutex{}}
+	var curFinishNum = IntegerWithLock{0, sync.Mutex{}}
+	batchCommitterForMix := func(seDB *sedb.SEDB, flagChan chan bool) {
+		//for {
+		curStartNum.lock.Lock()                         //阻塞新插入或查询操作
+		for curStartNum.number != curFinishNum.number { //等待所有旧插入或查询操作完成
+		}
+		// 批量提交，即一并更新辅助索引的脏数据
+		seDB.BatchCommit()
+		//seDB.CacheAdjust(a, b)
+		// 重置计数器
+		curFinishNum.number = 0
+		curStartNum.number = 0
+		curStartNum.lock.Unlock()
+
+		flagChan <- true
+		//}
+
+		//seDB.CacheAdjust(a, b)
+	}
+	writeWorker := func(wg *sync.WaitGroup, seDB *sedb.SEDB, insertKVPairCh chan string, durationCh chan time.Duration) {
+		for line := range insertKVPairCh {
+			for {
+				if curStartNum.number < batchSize && curStartNum.lock.TryLock() {
+					if curStartNum.number == batchSize {
+
+						curStartNum.lock.Unlock()
+						continue
+					}
+					curStartNum.number++
+					curStartNum.lock.Unlock()
+					break
+				}
+			}
+			//fmt.Println("insert " + line)
+			//解析line是insert还是update
+			line_ := strings.Split(line, ",")
+			kvPair := *util.NewKVPair(util.StringToHex(line_[1]), util.StringToHex(line_[2]))
+			st := time.Now()
+			if line_[0] == "insertion" || line_[0] == "insert" {
+				seDB.InsertKVPair(kvPair, false)
+			} else if line_[0] == "update" {
+				seDB.InsertKVPair(kvPair, true)
+			}
+			du := time.Since(st)
+			durationCh <- du //add
+			curFinishNum.lock.Lock()
+			curFinishNum.number++
+			curFinishNum.lock.Unlock()
+		}
+		wg.Done()
+	}
+
+	countLatency := func(rets *[]time.Duration, durationChList *[]chan time.Duration, done chan bool) {
+		wG := sync.WaitGroup{}
+		wG.Add(len(*rets))
+		for i := 0; i < len(*rets); i++ {
+			idx := i
+
+			go func() {
+				ch := (*durationChList)[idx]
+				for du := range ch {
+					(*rets)[idx] += du
+				}
+				wG.Done()
+			}()
+		}
+		wG.Wait()
+		done <- true
+	}
+	createWriteWorkerPool := func(numOfWorker int, seDB *sedb.SEDB, insertKVPairCh chan string, durationChList *[]chan time.Duration, flagChan chan bool) {
+		var wg sync.WaitGroup
+		for i := 0; i < numOfWorker; i++ {
+			wg.Add(1)
+			go writeWorker(&wg, seDB, insertKVPairCh, (*durationChList)[i])
+		}
+		wg.Wait()
+
+		batchCommitterForMix(seDB, flagChan)
+		//stopBatchCommitterFlag = false
+		//for _, duCh := range *durationChList {
+		//	close(duCh)
+		//}
+	}
+	var numOfWorker = 1 //change
+
+	var duration time.Duration = 0
+	var latencyDuration time.Duration = 0
+	latencyDurationChList := make([]chan time.Duration, numOfWorker)
+	for i := 0; i < numOfWorker; i++ {
+		latencyDurationChList[i] = make(chan time.Duration)
+	}
+	latencyDurationList := make([]time.Duration, numOfWorker)
+	doneCh := make(chan bool)
+	go countLatency(&latencyDurationList, &latencyDurationChList, doneCh)
+	countNum := 0
+	start := time.Now()
+	txnumber := 0
+	for i := 0; i < len(txs); i += batchSize {
+		//每次建立一遍
+		insertKVPairCh := make(chan string, batchSize)
+		flagChan := make(chan bool) //用于通知数据提交完成的通道
+		for j := 0; j < batchSize; j++ {
+			if i+j >= len(txs) {
+				break
+			}
+			tx := txs[i+j]
+			countNum = i + j
+			if countNum%100 == 0 {
+				fmt.Println(countNum)
+			}
+			tx_ := strings.Split(tx, ",")
+			if tx_[0] == "insertion" || tx_[0] == "update" || tx_[0] == "insert" {
+				txline := tx             //add
+				insertKVPairCh <- txline //add
+				txnumber++
+			} else if tx_[0] == "query" {
+			}
+		}
+		close(insertKVPairCh)
+
+		//TODO:在这里创建线程池并通过close通道让线程池返回
+		go createWriteWorkerPool(numOfWorker, w.seDB, insertKVPairCh, &latencyDurationChList, flagChan) //add
+
+		<-flagChan //阻塞等待接收提交完成通知
+		//fmt.Println("insert over")
+		close(flagChan)
+	}
+
+	for _, duCh := range latencyDurationChList {
+		close(duCh)
+	}
+	<-doneCh
+	for _, du := range latencyDurationList {
+		latencyDuration += du
+	}
+	duration = time.Since(start)
+	w.seDB.WriteSEDBInfoToFile("levelDB/config.txt")
+	duration2 := time.Since(start)
+	fmt.Println("duration:", duration)
+	fmt.Println(duration2)
+	util.WriteResultToFile("result/mestResult", "Insert "+strconv.Itoa(txnumber)+" records in "+
+		duration.String()+", average latency is "+strconv.FormatFloat(float64(latencyDuration.Milliseconds())/float64(txnumber), 'f', -1, 64)+" mspt.\n")
 }
 
 func copyFile(src, dst string) (int64, error) {
