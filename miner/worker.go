@@ -200,7 +200,7 @@ type worker struct {
 
 func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus.Engine, eth Backend, mux *event.TypeMux, isLocalBlock func(*types.Block) bool, init bool) *worker {
 	//新增start
-	siMode := "meht" //meht,mbt,mpt
+	siMode := "mpt" //meht,mbt,mpt
 	filePath := "levelDB/config.txt"
 	dirs := strings.Split(filePath, "/")
 	if _, err := os.Stat(strings.Join(dirs[:len(dirs)-1], "/")); os.IsNotExist(err) {

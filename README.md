@@ -47,8 +47,16 @@ Start node and go into the console: `geth --networkid 200 --datadir "./" --nodis
 ## Run MEST Experiments
 Change **siMode(meht,mbt,mpt)** located in line 203 of `miner/worker.go`.
 
+Rebuild source codes by `make geth` and `cp ./build/bin/geth /usr/local/bin/`.
+
+Remove filedirs `geth`, `keystore`, `levelDB`, `result`, `geth.ipc` in `ehtnodes`.
+
+Rebuild blockchain and nodes by `cd ethnodes` and then `geth --datadir ./ init ./genesis.json`.
+
+Start console by `geth --networkid 200 --datadir "./" --nodiscover --rpcapi personal console`.
+
 Start mining and send transactions in console: `loadScript("run.js")`.
 
-Wait for the program to execute and obtain the complete result. (maybe a long time)
+Wait for the program to execute and obtain the complete result. (maybe a long time) `Ctrl+D` stop console.
 
 Then execute `ethnodes/parseResult.py` to parse the execution result.
