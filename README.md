@@ -9,7 +9,7 @@ Download `build/bin/geth`.
 ### Build from source code
 Download source code and build by `make geth`.
 
-## Configure the execution path
+## Configure Execution Path
 `cd go-ethereum-1.9.2`
 
 `cp ./build/bin/geth /usr/local/bin/`
