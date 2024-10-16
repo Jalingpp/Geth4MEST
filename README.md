@@ -1,5 +1,5 @@
 # Geth4MEST
-This is a go-ethereum version changed for MEST experiments. Geth4MEST is based on go-ethereum@v1.9.20 and change the transaction structure for non-primary key queries.
+This is a go-ethereum version changed for MEST experiments. Geth4MEST is based on go-ethereum@v1.9.20 and change the transaction structure (`core/types/transaction.go`) for non-primary key queries and change the transaction commit to the data storage engine (`miner/worker.go`). Other related modifications are ignored here.
 
 ## Build Geth4MEST
 
